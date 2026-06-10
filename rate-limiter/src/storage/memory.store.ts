@@ -41,25 +41,6 @@ export class MemoryStore implements Store {
     });
   }
 
-  async increment(key: string): Promise<number> {
-    const entry = this.store.get(key);
-    const expired = !entry || this.isExpired(entry);
-    const current = expired ? 0 : parseInt(entry.value, 10);
-    const next = current + 1;
-    this.store.set(key, {
-      value: String(next),
-      expiresAt: expired ? null : (entry?.expiresAt ?? null),
-    });
-    return next;
-  }
-
-  async expire(key: string, ttlMs: number): Promise<void> {
-    const entry = this.store.get(key);
-    if (entry && !this.isExpired(entry)) {
-      entry.expiresAt = this.now() + ttlMs;
-    }
-  }
-
   async zadd(key: string, score: number, member: string): Promise<void> {
     const set = this.sortedSets.get(key) ?? [];
     const idx = set.findIndex((e) => e.member === member);
@@ -69,14 +50,6 @@ export class MemoryStore implements Store {
       set.push({ score, member });
     }
     this.sortedSets.set(key, set);
-  }
-
-  async zrangeByScore(key: string, min: number, max: number): Promise<string[]> {
-    const set = this.sortedSets.get(key) ?? [];
-    return set
-      .filter((e) => e.score >= min && e.score <= max)
-      .sort((a, b) => a.score - b.score)
-      .map((e) => e.member);
   }
 
   async zremRangeByScore(key: string, min: number, max: number): Promise<void> {

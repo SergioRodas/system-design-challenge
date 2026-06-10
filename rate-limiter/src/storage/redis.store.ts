@@ -29,21 +29,8 @@ export class RedisStore implements Store {
     }
   }
 
-  async increment(key: string): Promise<number> {
-    return this.redis.incr(key);
-  }
-
-  async expire(key: string, ttlMs: number): Promise<void> {
-    // PEXPIRE takes milliseconds; Redis floors to ms precision.
-    await this.redis.pexpire(key, ttlMs);
-  }
-
   async zadd(key: string, score: number, member: string): Promise<void> {
     await this.redis.zadd(key, score, member);
-  }
-
-  async zrangeByScore(key: string, min: number, max: number): Promise<string[]> {
-    return this.redis.zrangebyscore(key, min, max);
   }
 
   async zremRangeByScore(key: string, min: number, max: number): Promise<void> {
