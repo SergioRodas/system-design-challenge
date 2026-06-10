@@ -66,10 +66,22 @@ Retry-After: 30                # seconds to wait (only on 429 responses)
 - Generated Jest configuration and test boilerplate
 
 ### Code I reviewed carefully before accepting
-**Redis Lua script** (`src/storage/redis.store.ts`): The atomic script that checks and updates
-the token count. I verified it handles the TTL reset correctly and doesn't have an off-by-one
-error on the token count. The logic is: if key doesn't exist, initialize with (max - 1) tokens
-and set TTL. If key exists, decrement only if count > 0.
+**Redis Lua script** (`src/algorithms/redis-token-bucket.ts`): The atomic script that refills and
+consumes tokens. I verified it handles the TTL reset correctly and doesn't have an off-by-one error
+on the token count. The logic is: read `{tokens, lastRefill}` from a Redis hash; if the key doesn't
+exist, start the bucket full (`tokens = maxTokens`); otherwise refill proportionally to elapsed time
+(`tokens = min(maxTokens, tokens + elapsed * refillRate)`), capped at the max. Consume one token only
+if at least one is available, then write the state back and reset the TTL — all inside a single
+`EVAL`, so concurrent requests can never both read "1 token left" and both consume it.
+
+#### Why the script lives in `redis-token-bucket.ts`, not `redis.store.ts`
+The non-atomicity is in the algorithm, not the storage. `RateLimiter.consume` is a read-modify-write
+(refill, then maybe consume), and a generic `Store.get`/`set` can't make that single step atomic —
+two requests would still interleave between the `get` and the `set`. So the atomic logic belongs to
+whatever owns the bucket semantics. `RedisStore` is therefore kept as a thin, generic ioredis adapter
+(`get`/`set`/`zadd`/…) usable by any algorithm, while `RedisTokenBucket` owns the Lua script and
+implements `RateLimiter` directly. This keeps the `Store` interface honest: it never grows
+rate-limiter-shaped methods, and the in-memory and Redis stores stay interchangeable behind it.
 
 ## Trade-offs and known limitations
 - In-memory store is not suitable for production (state lost on restart, not shared across instances)
