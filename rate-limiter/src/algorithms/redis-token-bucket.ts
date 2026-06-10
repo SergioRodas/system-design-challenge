@@ -25,6 +25,7 @@ local refillRate = tonumber(ARGV[2])  -- tokens per ms
 local windowMs   = tonumber(ARGV[3])
 local now        = tonumber(ARGV[4])
 
+-- Load the current bucket state. Both fields come back nil for a brand-new key.
 local bucket = redis.call('HMGET', key, 'tokens', 'lastRefill')
 local tokens = tonumber(bucket[1])
 local lastRefill = tonumber(bucket[2])
@@ -34,17 +35,22 @@ if tokens == nil then
   tokens = maxTokens
   lastRefill = now
 else
+  -- Lazy refill: credit tokens for the time elapsed since the last call, capped at maxTokens.
+  -- Refilling on read means we never need a background timer to top buckets up.
   local elapsed = now - lastRefill
   tokens = math.min(maxTokens, tokens + elapsed * refillRate)
   lastRefill = now
 end
 
+-- Consume a token only if one is available. This check-and-decrement runs inside the
+-- single atomic EVAL, so two concurrent requests can't both see the last token.
 local allowed = 0
 if tokens >= 1 then
   allowed = 1
   tokens = tokens - 1
 end
 
+-- Persist the new state and slide the TTL forward so idle buckets self-expire (no cleanup job).
 redis.call('HSET', key, 'tokens', tokens, 'lastRefill', lastRefill)
 redis.call('PEXPIRE', key, windowMs)
 
